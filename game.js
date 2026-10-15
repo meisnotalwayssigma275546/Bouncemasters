@@ -10743,7 +10743,7 @@
                 var e;
                 if (!h) {
                     if (navigator.userAgent.toLowerCase().indexOf("chrome") > -1) {
-                        var r = ["\n %c %c %c PixiJS 5.3.3 - ✰ " + t + " ✰  %c  %c  http://www.pixijs.com/  %c %c ♥%c♥%c♥ \n\n", "background: #ff66a5; padding:5px 0;", "background: #ff66a5; padding:5px 0;", "color: #ff66a5; background: #030307; padding:5px 0;", "background: #ff66a5; padding:5px 0;", "background: #ffc3dc; padding:5px 0;", "background: #ff66a5; padding:5px 0;", "color: #ff2424; background: #fff; padding:5px 0;", "color: #ff2424; background: #fff; padding:5px 0;", "color: #ff2424; background: #fff; padding:5px 0;"];
+                        var r = ["\n %c %c %c PixiJS 5.3.3 - âœ° " + t + " âœ°  %c  %c  http://www.pixijs.com/  %c %c â™¥%câ™¥%câ™¥ \n\n", "background: #ff66a5; padding:5px 0;", "background: #ff66a5; padding:5px 0;", "color: #ff66a5; background: #030307; padding:5px 0;", "background: #ff66a5; padding:5px 0;", "background: #ffc3dc; padding:5px 0;", "background: #ff66a5; padding:5px 0;", "color: #ff2424; background: #fff; padding:5px 0;", "color: #ff2424; background: #fff; padding:5px 0;", "color: #ff2424; background: #fff; padding:5px 0;"];
                         (e = window.console).log.apply(e, r)
                     } else
                         window.console && window.console.log("PixiJS 5.3.3 - " + t + " - http://www.pixijs.com/");
@@ -56035,7 +56035,8 @@
             ew(nw, "unscaledTweenGroup", new a.ZP.Group),
             ew(nw, "_musicThemeManager", null),
             ew(nw, "pausers", new Set);
-            const iw = nw
+            const iw = nw;
+            window.__bm = nw
         }
         ,
         6896: (t, e, r) => {
@@ -60790,10 +60791,10 @@
                 if (e = e.split("-").shift(),
                 t = t.trim(),
                 "es" === e)
-                    "¿" !== t[0] && (t = "¿" + t),
+                    "Â¿" !== t[0] && (t = "Â¿" + t),
                     "?" !== t[t.length - 1] && (t += "?");
                 else if ("ar" === e)
-                    "؟" !== t[0] && (t = "؟" + t);
+                    "ØŸ" !== t[0] && (t = "ØŸ" + t);
                 else if ("fr" === e) {
                     if (" " === t[t.length - 2] && "?" === t[t.length - 1])
                         return t;
@@ -60809,7 +60810,7 @@
                 if (e = e.split("-").shift(),
                 t = t.trim(),
                 "es" === e)
-                    "¡" !== t[0] && (t = "¡" + t),
+                    "Â¡" !== t[0] && (t = "Â¡" + t),
                     "!" !== t[t.length - 1] && (t += "!");
                 else if ("ar" === e)
                     "!" !== t[0] && (t = "!" + t);
@@ -60826,7 +60827,7 @@
             n.rleLangs = ["ar", "az", "dv", "ff", "he", "ku", "fa", "ur"],
             n.fixRLE = function(t) {
                 var e = n.locale;
-                return n.rleLangs.indexOf(e) >= 0 && (t = t.split("\n").join("\n‮")),
+                return n.rleLangs.indexOf(e) >= 0 && (t = t.split("\n").join("\nâ€®")),
                 t
             }
             ,
@@ -67846,7 +67847,7 @@
             )("versions", []).push({
                 version: n.version,
                 mode: r(4461) ? "pure" : "global",
-                copyright: "© 2019 Denis Pushkarev (zloirock.ru)"
+                copyright: "Â© 2019 Denis Pushkarev (zloirock.ru)"
             })
         }
         ,
@@ -67960,7 +67961,7 @@
               , c = function(t, e, r) {
                 var i = {}
                   , s = o((function() {
-                    return !!a[t]() || "​" != "​"[t]()
+                    return !!a[t]() || "â€‹Â…" != "â€‹Â…"[t]()
                 }
                 ))
                   , u = i[t] = s ? e(h) : a[t];
@@ -67978,7 +67979,7 @@
         }
         ,
         4644: t => {
-            t.exports = "\t\n\v\f\r   ᠎             　\u2028\u2029\ufeff"
+            t.exports = "\t\n\v\f\r Â áš€á Žâ€€â€â€‚â€ƒâ€„â€…â€†â€‡â€ˆâ€‰â€Šâ€¯âŸã€€\u2028\u2029\ufeff"
         }
         ,
         4193: (t, e, r) => {
@@ -72547,8 +72548,8 @@
                 } catch (e) {
                     return function(t) {
                         for (var e = {
-                            "%FE%FF": "��",
-                            "%FF%FE": "��"
+                            "%FE%FF": "ï¿½ï¿½",
+                            "%FF%FE": "ï¿½ï¿½"
                         }, r = n.exec(t); r; ) {
                             try {
                                 e[r[0]] = decodeURIComponent(r[0])
@@ -72558,7 +72559,7 @@
                             }
                             r = n.exec(t)
                         }
-                        e["%C2"] = "�";
+                        e["%C2"] = "ï¿½";
                         for (var a = Object.keys(e), s = 0; s < a.length; s++) {
                             var u = a[s];
                             t = t.replace(new RegExp(u,"g"), e[u])
@@ -75170,7 +75171,7 @@
                         ,
                         n.deprecated = function(t, e, r) {
                             t[e] = n.chain((function() {
-                                n.warnOnce("🔅 deprecated 🔅", r)
+                                n.warnOnce("ðŸ”… deprecated ðŸ”…", r)
                             }
                             ), t[e])
                         }
@@ -77306,9 +77307,9 @@
                                     u._warned = !0),
                                     u.install ? u.install(t) : (i.warn("Plugin.use:", n.toString(u), "does not specify an install function."),
                                     u._warned = !0),
-                                    u._warned ? (a.push("🔶 " + n.toString(u)),
-                                    delete u._warned) : a.push("✅ " + n.toString(u)),
-                                    t.used.push(u.name)) : a.push("❌ " + o[s])
+                                    u._warned ? (a.push("ðŸ”¶ " + n.toString(u)),
+                                    delete u._warned) : a.push("âœ… " + n.toString(u)),
+                                    t.used.push(u.name)) : a.push("âŒ " + o[s])
                                 }
                             a.length > 0 && i.info(a.join("  "))
                         } else
@@ -77808,7 +77809,7 @@
                     n.Vertices = r(3),
                     n.World = r(30),
                     n.Engine.run = n.Runner.run,
-                    n.Common.deprecated(n.Engine, "run", "Engine.run ➤ use Matter.Runner.run(engine) instead")
+                    n.Common.deprecated(n.Engine, "run", "Engine.run âž¤ use Matter.Runner.run(engine) instead")
                 }
                 , function(t, e, r) {
                     var n = {};
@@ -77966,7 +77967,7 @@
                         return s
                     }
                     ,
-                    l(n, "newtonsCradle", "Composites.newtonsCradle ➤ moved to newtonsCradle example"),
+                    l(n, "newtonsCradle", "Composites.newtonsCradle âž¤ moved to newtonsCradle example"),
                     n.car = function(t, e, r, n, a) {
                         var l = s.nextGroup(!0)
                           , c = .5 * -r + 20
@@ -78023,7 +78024,7 @@
                         f
                     }
                     ,
-                    l(n, "car", "Composites.car ➤ moved to car example"),
+                    l(n, "car", "Composites.car âž¤ moved to car example"),
                     n.softBody = function(t, e, r, i, o, s, l, c, h, f) {
                         h = a.extend({
                             inertia: 1 / 0
@@ -78044,7 +78045,7 @@
                         p
                     }
                     ,
-                    l(n, "softBody", "Composites.softBody ➤ moved to softBody and cloth examples")
+                    l(n, "softBody", "Composites.softBody âž¤ moved to softBody and cloth examples")
                 }
                 , function(t, e, r) {
                     var n = {};
@@ -78088,14 +78089,14 @@
                         f && (t.pairsList = n._createActivePairsList(t))
                     }
                     ,
-                    a(n, "update", "Grid.update ➤ replaced by Matter.Detector"),
+                    a(n, "update", "Grid.update âž¤ replaced by Matter.Detector"),
                     n.clear = function(t) {
                         t.buckets = {},
                         t.pairs = {},
                         t.pairsList = []
                     }
                     ,
-                    a(n, "clear", "Grid.clear ➤ replaced by Matter.Detector"),
+                    a(n, "clear", "Grid.clear âž¤ replaced by Matter.Detector"),
                     n._regionUnion = function(t, e) {
                         var r = Math.min(t.startCol, e.startCol)
                           , i = Math.max(t.endCol, e.endCol)
@@ -79177,7 +79178,7 @@
                         return i.collides(t, e)
                     }
                     ,
-                    o(n, "collides", "SAT.collides ➤ replaced by Collision.collides")
+                    o(n, "collides", "SAT.collides âž¤ replaced by Collision.collides")
                 }
                 , function(t, e, r) {
                     var n = {};
@@ -104448,7 +104449,7 @@
             W._canvas = H,
             W._context = H.getContext("2d"),
             W._fonts = {},
-            W.METRICS_STRING = "|ÉqÅ",
+            W.METRICS_STRING = "|Ã‰qÃ…",
             W.BASELINE_SYMBOL = "M",
             W.BASELINE_MULTIPLIER = 1.4,
             W._newlines = [10, 13],
