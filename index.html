@@ -1,11 +1,11 @@
-<!-- Ultimate Game Stash file--> 
-<!-- For the regularly updating doc go to https://docs.google.com/document/d/1_FmH3BlSBQI7FGgAQL59-ZPe8eCxs35wel6JUyVaG8Q/ -->
-
 <!DOCTYPE html>
 <html>
 
 <head>
 
+    <!-- The base tag makes every RELATIVE address (images, sounds, json, css) load from jsDelivr.
+         That is why your own mod.js and game.js were never used: "mod.js" became
+         cdn.jsdelivr.net/.../mod.js. The loader below builds addresses from the page's own URL instead. -->
     <base href="https://cdn.jsdelivr.net/gh/bubbls/youtube-playables@main/bouncemasters/">
     <title>Bouncemasters</title>
 
@@ -22,9 +22,25 @@
 
     <script src="https://cdn.jsdelivr.net/gh/bubbls/youtube-playables@main/ytgame.js" nonce="KA1eZH6AAF8sVJT2PFen-g"></script>
 
-<script src="mod.js"></script>
-<script src="game.js"></script>
-<script nonce="KA1eZH6AAF8sVJT2PFen-g">window.addEventListener("load", () => window.runGame());</script>
+    <script>
+    (function () {
+        // folder this page was opened from (location.href ignores the base tag)
+        var root = location.href.replace(/[?#].*$/, "").replace(/[^\/]*$/, "");
+        function load(file, next) {
+            var s = document.createElement("script");
+            s.src = root + file + "?v=" + Date.now();   // skip stale cached copies while testing
+            s.onload = next;
+            s.onerror = function () { console.error("could not load " + s.src); };
+            document.head.appendChild(s);
+        }
+        function start() {
+            if (document.readyState === "complete") window.runGame();
+            else window.addEventListener("load", function () { window.runGame(); });
+        }
+        // order matters: mod.js first (saving shim), then the patched game, then start
+        load("mod.js", function () { load("game.js", start); });
+    })();
+    </script>
 </head>
 
 
