@@ -91,7 +91,8 @@ return orig.apply(this, arguments);
 
 // ================= timeline: state snapshots + video frames, 10 per second =================
 const GK = ["gravityAccelerationUpMoving", "gravityAccelerationDownMoving", "gravityCosmosAccelerationUpMoving", "gravityCosmosAccelerationDownMoving"];
-const MAXREC = 1800; // 3 minutes at 10/s
+const MAXREC = 1800; // 3 minutes of state at 10/s
+const MAXFR = 3600; // 3 minutes of video at 20/s
 let snaps = [], frames = [], lastS = 0, lastF = 0, skew = 0, rw = null;
 const clk = () => performance.now() - skew; // timeline clock: skips over the time that was rewound
 const bsearch = (arr, t) => { let lo = 0, hi = arr.length - 1, r = -1; while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m].t <= t) { r = m; lo = m + 1; } else hi = m - 1; } return r; };
@@ -170,19 +171,25 @@ lastS = now;
 snaps.push({ t: now, x: ch.x, y: ch.y, vx: v.x, vy: v.y });
 if (snaps.length > MAXREC) snaps.shift();
 }
-if (S.recFrames && now - lastF >= 100) {
+});
+
+// video frames: captured AFTER the game has rendered (lowest priority), otherwise a WebGL canvas reads back black
+const grabFrame = () => {
+if (!S.rec || !S.recFrames || rw) return;
+const now = clk();
+if (now - lastF < 50) return;
 lastF = now;
 const vw = VIEW();
-if (vw && vw.width) {
-const w = Math.max(160, Math.round(vw.width / 4)), h = Math.round(vw.height * w / vw.width);
+if (!vw || !vw.width) return;
+const w = Math.max(160, Math.round(vw.width / 3)), h = Math.round(vw.height * w / vw.width);
 if (fc.width !== w) { fc.width = w; fc.height = h; }
 try {
 fctx.drawImage(vw, 0, 0, w, h);
-fc.toBlob((b) => { if (b) { frames.push({ t: now, b }); if (frames.length > MAXREC) frames.shift(); } }, "image/webp", 0.5);
+fc.toBlob((b) => { if (b) { frames.push({ t: now, b }); if (frames.length > MAXFR) frames.shift(); } }, "image/webp", 0.6);
 } catch (e) {}
-}
-}
-});
+};
+tk.add(grabFrame, null, -50);
+try { B.pixiApp.renderer.on("postrender", grabFrame); } catch (e) {}
 
 // ================= rewind sound (synthesized tape whirr) =================
 let ac = null, snd = null;
@@ -440,7 +447,7 @@ transition:transform .6s ${spring};user-select:none;overflow:hidden}
 .tr input{width:84px;flex:none;box-sizing:border-box;background:rgba(255,255,255,.12);border:0;border-radius:9px;padding:4px 8px;color:#000;font:600 11.5px ${MONO};outline:none;text-align:right;user-select:text}
 .lk{flex:none;width:24px;height:22px;border:0;border-radius:8px;background:rgba(255,255,255,.14);font-size:11px;cursor:pointer;padding:0;opacity:.6}.lk.on{background:var(--ac,#34c759);opacity:1}
 .empty{padding:22px;text-align:center;opacity:.6;font-size:12px}
-.status{position:sticky;bottom:0;font:11px ${MONO};min-height:13px;padding:5px 9px;border-radius:12px;background:rgba(0,0,0,.28);color:#000;word-break:break-word;flex:none}
+.status{display:none;position:sticky;bottom:0;font:11px ${MONO};min-height:13px;padding:5px 9px;border-radius:12px;background:rgba(0,0,0,.28);color:#000;word-break:break-word;flex:none}
 .meter{height:8px;border-radius:4px;background:rgba(0,0,0,.25);overflow:hidden}.meter i{display:block;height:100%;width:0;background:var(--ac,#34c759);transition:width .25s}
 .keys{font:11px/1.55 ${MONO};opacity:.85;white-space:pre-wrap}
 textarea.num{width:100%;height:64px;padding:8px 10px;border-radius:14px;text-align:left;resize:none;font:11px ${MONO}}
@@ -585,7 +592,7 @@ const rbtn = btn("Rewind", () => { const n = Number(rsec.value); if (!(n >= 1)) 
 const bigHold = holdBtn(el("button", { className: "btn big", textContent: "\u25C4\u25C4  HOLD TO REWIND" }));
 const asec = box(() => S.autoSec, (v) => { S.autoSec = Math.max(1, Math.floor(v)); }, true);
 const rec = card("RECORDER", [
-R(lbl("Record state", "10 times a second, 3 min"), flag("rec")),
+R(lbl("Record state", "state 10/s, video 20/s, 3 min"), flag("rec")),
 R(lbl("Record video frames", "needed for the reversed footage"), flag("recFrames")),
 el("div", { className: "meter" }, [meterI]), meterT,
 btn("Clear buffer", () => { snaps = []; frames = []; say("buffer cleared"); })
