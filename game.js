@@ -1,3 +1,282 @@
+/* ===== Bouncemasters mod (injected): persistent save store + rewind recorder ===== */
+(function () {
+if (window.__bmr) return;
+
+// ---------- persistent save: localStorage + IndexedDB + window.name ----------
+var SK = "bm_ytgame_save", NK = "BMSAVE:", lastSaved = null;
+function lsGet() { try { return localStorage.getItem(SK); } catch (e) { return null; } }
+function lsSet(s) { try { localStorage.setItem(SK, s); } catch (e) {} }
+var idbP = null;
+function idb() {
+return idbP || (idbP = new Promise(function (res) {
+try { var r = indexedDB.open("bmmod", 1); r.onupgradeneeded = function () { r.result.createObjectStore("kv"); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { res(null); }; } catch (e) { res(null); }
+}));
+}
+function idbGet() {
+return idb().then(function (db) {
+return db ? new Promise(function (res) { try { var q = db.transaction("kv").objectStore("kv").get(SK); q.onsuccess = function () { res(q.result || null); }; q.onerror = function () { res(null); }; } catch (e) { res(null); } }) : null;
+});
+}
+function idbSet(s) { idb().then(function (db) { if (db) { try { db.transaction("kv", "readwrite").objectStore("kv").put(s, SK); } catch (e) {} } }); }
+function nameGet() { try { return window.name && window.name.indexOf(NK) === 0 ? window.name.slice(NK.length) : null; } catch (e) { return null; } }
+function nameSet(s) { try { if (!window.name || window.name.indexOf(NK) === 0) window.name = NK + s; } catch (e) {} }
+function readSave() { var a = lsGet() || nameGet(); if (a) return Promise.resolve(a); return idbGet().then(function (b) { return b || ""; }); }
+function writeSave(s, force) {
+if (typeof s !== "string" || !s) return;
+if (!force && s === "{}") return; // never replace a real save with an empty one by accident
+lastSaved = s; lsSet(s); nameSet(s); idbSet(s);
+}
+window.__bmStore = { load: readSave, save: function (s) { writeSave(s); return Promise.resolve(); }, write: writeSave, read: readSave, last: function () { return lastSaved; } };
+if (!window.ytgame) {
+window.ytgame = {
+game: { loadData: readSave, saveData: function (s) { writeSave(s); return Promise.resolve(); }, firstFrameReady: function () {}, gameReady: function () {} },
+system: { getLanguage: function () { return Promise.resolve(navigator.language || "en"); }, isAudioEnabled: function () { return true; }, onAudioEnabledChange: function () {}, onPause: function () {}, onResume: function () {} },
+engagement: { sendScore: function () { return Promise.resolve(); } }
+};
+}
+function flushSave() { try { var g = window.__bm && window.__bm.platformApi && window.__bm.platformApi.storage; if (g && g.data) { var s = JSON.stringify(g.data); if (s !== lastSaved) writeSave(s); } } catch (e) {} }
+setInterval(flushSave, 3000);
+addEventListener("pagehide", flushSave); addEventListener("beforeunload", flushSave);
+document.addEventListener("visibilitychange", function () { if (document.hidden) flushSave(); });
+
+// ---------- rewind recorder ----------
+// Records the real state of the game objects (character, level, camera, managers, obstacles, coins and their
+// animations) and puts exactly that back. It never touches the display tree blindly and never touches your save.
+var R = window.__bmr = { ready: true, enabled: true, keepObs: 80, kept: { o: [], m: [] }, lastErr: "", lastMs: 0 };
+var SKIP = {};
+var budget = 0;
+function dead(o) { return !o || o._destroyed || o.destroyed; }
+function isPrim(v) { var t = typeof v; return t === "number" || t === "boolean" || t === "string" || v === null || v === undefined; }
+function isDisp(o) { return !!o && typeof o === "object" && !!o.children && o.transform !== undefined && "alpha" in o; }
+function isPlain(v) { if (!v || typeof v !== "object") return false; var p = Object.getPrototypeOf(v); return p === Object.prototype || p === null; }
+function isVec(v) { var k = Object.keys(v); if (!k.length || k.length > 3) return false; for (var i = 0; i < k.length; i++) { if (!(k[i] === "x" || k[i] === "y" || k[i] === "z") || typeof v[k[i]] !== "number") return false; } return true; }
+function clone(v, d) {
+if (isPrim(v)) return v;
+if (typeof v === "function") return SKIP;
+if (d > 3 || budget-- <= 0 || v instanceof Node || isDisp(v)) return SKIP;
+var i, k, c;
+if (Array.isArray(v)) {
+if (v.length > 300) return SKIP;
+var a = new Array(v.length);
+for (i = 0; i < v.length; i++) { c = clone(v[i], d + 1); if (c === SKIP) return SKIP; a[i] = c; }
+return a;
+}
+var ks; try { ks = Object.keys(v); } catch (e) { return SKIP; }
+var o = {};
+if (isVec(v)) { for (i = 0; i < ks.length; i++) o[ks[i]] = v[ks[i]]; return o; }
+if (ks.length > 60) return SKIP;
+for (i = 0; i < ks.length; i++) { k = ks[i]; var x; try { x = v[k]; } catch (e) { continue; } c = clone(x, d + 1); if (c !== SKIP) o[k] = c; }
+return o;
+}
+function dc(v) { if (v === null || typeof v !== "object") return v; if (Array.isArray(v)) return v.map(dc); var o = {}; for (var k in v) o[k] = dc(v[k]); return o; }
+function put(o, k, v) {
+if (v !== null && typeof v === "object") {
+var cur = o[k];
+if (Array.isArray(v)) { if (Array.isArray(cur)) { cur.length = 0; for (var i = 0; i < v.length; i++) cur.push(dc(v[i])); } }
+else if (cur && typeof cur === "object") {
+var ks = Object.keys(v), j;
+for (j = 0; j < ks.length; j++) put(cur, ks[j], v[ks[j]]);
+if (isPlain(cur)) { var ck = Object.keys(cur); for (j = 0; j < ck.length; j++) if (!(ck[j] in v)) delete cur[ck[j]]; }
+}
+} else if (o[k] !== v) { try { o[k] = v; } catch (e) {} }
+}
+var INST = { ability: 1 };
+var SKIPK = { transform: 1, children: 1, parent: 1, name: 1 };
+function dispRoot(o) {
+var p = {}, ks; try { ks = Object.keys(o); } catch (e) { ks = []; }
+budget = 600;
+for (var i = 0; i < ks.length; i++) {
+var k = ks[i];
+if (k.charCodeAt(0) === 95 || SKIPK[k]) continue;
+var v; try { v = o[k]; } catch (e) { continue; }
+if (isPrim(v)) p[k] = v;
+else if (typeof v === "object" && !isDisp(v) && !(v instanceof Node) && (INST[k] || isVec(v))) { var c = clone(v, 1); if (c !== SKIP) p[k] = c; }
+}
+var sc = o.scale;
+return { x: o.x, y: o.y, sx: sc ? sc.x : 1, sy: sc ? sc.y : 1, r: o.rotation, a: o.alpha, v: o.visible, rd: o.renderable, p: p };
+}
+function applyRoot(o, r) {
+try { o.x = r.x; o.y = r.y; if (o.scale) { o.scale.x = r.sx; o.scale.y = r.sy; } o.rotation = r.r; o.alpha = r.a; o.visible = r.v; o.renderable = r.rd; } catch (e) {}
+var ks = Object.keys(r.p);
+for (var i = 0; i < ks.length; i++) { try { put(o, ks[i], r.p[ks[i]]); } catch (e) {} }
+}
+function stateOf(o) {
+if (isDisp(o)) return { d: 1, r: dispRoot(o) };
+var out = {}, ks; budget = 4000;
+try { ks = Object.keys(o); } catch (e) { return { d: 0, s: out }; }
+for (var i = 0; i < ks.length; i++) { var v; try { v = o[ks[i]]; } catch (e) { continue; } var c = clone(v, 0); if (c !== SKIP) out[ks[i]] = c; }
+return { d: 0, s: out };
+}
+function applyState(o, st) {
+if (st.d) { applyRoot(o, st.r); return; }
+var ks = Object.keys(st.s);
+for (var i = 0; i < ks.length; i++) { try { put(o, ks[i], st.s[ks[i]]); } catch (e) {} }
+}
+// transforms and animation state of a node and its descendants (bounded, deterministic order)
+function nodesOf(root, maxN, maxD) {
+var out = [];
+(function walk(o, d) {
+if (out.length >= maxN) return;
+out.push(o);
+if (d < maxD) { var c = o.children; if (c) for (var i = 0; i < c.length; i++) walk(c[i], d + 1); }
+})(root, 0);
+return out;
+}
+function walkTf(root, maxN, maxD) {
+var nodes = nodesOf(root, maxN, maxD), tf = new Float32Array(nodes.length * 7), an = [];
+for (var n = 0; n < nodes.length; n++) {
+var o = nodes[n], sc = o.scale, b = n * 7;
+tf[b] = o.x; tf[b + 1] = o.y; tf[b + 2] = sc ? sc.x : 1; tf[b + 3] = sc ? sc.y : 1; tf[b + 4] = o.rotation; tf[b + 5] = o.alpha; tf[b + 6] = o.visible ? 1 : 0;
+var st = o.state;
+if (st && typeof st === "object" && st.tracks) {
+var tr = [];
+for (var i = 0; i < st.tracks.length; i++) { var t = st.tracks[i]; tr.push(t && t.animation ? { n: t.animation.name, tt: t.trackTime, l: !!t.loop } : null); }
+an.push({ i: n, k: "sp", tr: tr });
+} else if (typeof o.currentFrame === "number" && "totalFrames" in o) an.push({ i: n, k: "as", f: o.currentFrame });
+}
+return { tf: tf, an: an, n: nodes.length, mn: maxN, md: maxD };
+}
+function applyTf(root, w) {
+var nodes = nodesOf(root, w.mn, w.md);
+if (nodes.length !== w.n) return; // the structure changed, skip rather than guess
+var n, i;
+for (n = 0; n < nodes.length; n++) {
+var o = nodes[n], b = n * 7;
+try { o.x = w.tf[b]; o.y = w.tf[b + 1]; if (o.scale) { o.scale.x = w.tf[b + 2]; o.scale.y = w.tf[b + 3]; } o.rotation = w.tf[b + 4]; o.alpha = w.tf[b + 5]; o.visible = w.tf[b + 6] > 0; } catch (e) {}
+}
+for (i = 0; i < w.an.length; i++) {
+var a = w.an[i], node = nodes[a.i];
+if (!node) continue;
+if (a.k === "as") { try { node.currentFrame = a.f; } catch (e) {} }
+else {
+var stt = node.state;
+if (!stt || !stt.tracks) continue;
+for (var t = 0; t < a.tr.length; t++) {
+var q = a.tr[t]; if (!q) continue;
+var cur = stt.tracks[t];
+if (!cur || !cur.animation || cur.animation.name !== q.n) { try { stt.setAnimation(t, q.n, q.l); cur = stt.tracks[t]; } catch (e) { cur = null; } }
+if (cur) { try { cur.trackTime = q.tt; } catch (e) {} }
+}
+try { node.update(0); } catch (e) {}
+}
+}
+}
+function objRec(o, maxN, maxD) { return { o: o, C: o.constructor, t: o.type, r: dispRoot(o), w: walkTf(o, maxN, maxD) }; }
+function destroyObj(o) { try { o.destroy({ children: true }); } catch (e) {} }
+
+// ---------- finding the level ----------
+var LV = null;
+function findLevel() {
+if (LV && LV.parent && LV.flyingCharacter && !dead(LV)) return LV;
+LV = null;
+var g = window.__bm; if (!g) return null;
+var stage; try { stage = g.pixiApp.stage; } catch (e) { return null; }
+var q = [stage];
+for (var n = 0; q.length && n < 6000; n++) {
+var o = q.shift();
+if (o && o.isLevel === true && o.flyingCharacter) { LV = o; break; }
+if (o && o.children) for (var i = 0; i < o.children.length; i++) q.push(o.children[i]);
+}
+return LV;
+}
+R.level = findLevel;
+
+// ---------- keeping passed obstacles and coins (called from the patched removePassed* methods) ----------
+R.keepO = function (om, r) {
+if (!R.enabled) { destroyObj(r); return; }
+if (R._kl !== om.level) { R.flush(); R._kl = om.level; }
+r.renderable = false;
+R.kept.o.push({ o: r, t: performance.now() });
+while (R.kept.o.length > R.keepObs) destroyObj(R.kept.o.shift().o);
+};
+R.keepM = function (mm, r) {
+if (!R.enabled) { destroyObj(r); return; }
+if (R._kl !== mm.level) { R.flush(); R._kl = mm.level; }
+r.renderable = false;
+R.kept.m.push({ o: r, t: performance.now() });
+while (R.kept.m.length > Math.round(R.keepObs * 1.5)) destroyObj(R.kept.m.shift().o);
+};
+R.flush = function () {
+while (R.kept.o.length) destroyObj(R.kept.o.pop().o);
+while (R.kept.m.length) destroyObj(R.kept.m.pop().o);
+};
+R.gc = function (oldestT) {
+var f = function (l) { while (l.length && l[0].t < oldestT) destroyObj(l.shift().o); };
+f(R.kept.o); f(R.kept.m);
+};
+
+// ---------- capture ----------
+var MGR = ["backgroundManager", "obstacleManager", "moneyManager", "comboManager", "skyDiverManager", "fatalityManager", "bestScoreLineManager", "leagueManager"];
+R.capture = function () {
+var t0 = performance.now();
+try {
+var L = findLevel();
+if (!L || L.state !== "flying") return null;
+var ch = L.flyingCharacter, om = L.obstacleManager, mm = L.moneyManager;
+var s = { t: performance.now(), level: L, ch: dispRoot(ch), chState: ch.state, chW: walkTf(ch, 40, 4), lv: dispRoot(L), cam: L.camera ? stateOf(L.camera) : null, mgr: [], obs: [], money: [], beat: null, b: 3000 };
+if (L.beatingCharacter) s.beat = { o: L.beatingCharacter, r: dispRoot(L.beatingCharacter), w: walkTf(L.beatingCharacter, 30, 4) };
+for (var i = 0; i < MGR.length; i++) { var m = L[MGR[i]]; if (m) s.mgr.push([m, stateOf(m)]); }
+var a = om.obstacles, j;
+for (j = 0; j < a.length; j++) { var r = objRec(a[j], 12, 2); s.obs.push(r); s.b += r.w.tf.byteLength + 400; }
+var b = mm.money;
+for (j = 0; j < b.length; j++) { var r2 = objRec(b[j], 4, 2); s.money.push(r2); s.b += r2.w.tf.byteLength + 300; }
+s.b += s.chW.tf.byteLength + (s.beat ? s.beat.w.tf.byteLength : 0);
+R.lastMs = performance.now() - t0;
+return s;
+} catch (e) { R.lastErr = String(e); return null; }
+};
+
+// ---------- restore ----------
+function restoreList(L, s, list, kept, isObs) {
+var keep = new Set(), out = [], i, r, o;
+for (i = 0; i < list.length; i++) {
+r = list[i]; o = r.o;
+if (dead(o)) {
+try {
+if (isObs) { o = new r.C(); o.x = r.r.x; o.y = r.r.y; L.addObstacleIntoWorld(o); }
+else { o = r.t === "gem" ? new r.C({ isCheated: !!(r.r.p && r.r.p.isCheated) }) : new r.C(); o.x = r.r.x; o.y = r.r.y; L.addMoneyIntoWorld(o); }
+} catch (e) { o = null; }
+if (!o) continue;
+}
+applyRoot(o, r.r);
+applyTf(o, r.w);
+o.renderable = true;
+keep.add(o); out.push(o);
+}
+return { keep: keep, out: out };
+}
+R.restore = function (s) {
+try {
+var L = s && s.level;
+if (!L || dead(L) || !L.flyingCharacter || findLevel() !== L) return false;
+var ch = L.flyingCharacter, om = L.obstacleManager, mm = L.moneyManager, i;
+// character first (its state setter has side effects), then everything that derives from it
+if (ch.state !== s.chState) { ch.deathType = "none"; ch.isFlipped = false; ch.state = s.chState; }
+applyRoot(ch, s.ch); applyTf(ch, s.chW);
+applyRoot(L, s.lv);
+if (L.camera && s.cam) applyState(L.camera, s.cam);
+for (i = 0; i < s.mgr.length; i++) applyState(s.mgr[i][0], s.mgr[i][1]);
+if (s.beat && !dead(s.beat.o)) { applyRoot(s.beat.o, s.beat.r); applyTf(s.beat.o, s.beat.w); }
+// obstacles and coins: bring back exactly the ones that existed, remove the ones spawned afterwards
+var ro = restoreList(L, s, s.obs, R.kept.o, true), rm = restoreList(L, s, s.money, R.kept.m, false);
+for (i = om.obstacles.length - 1; i >= 0; i--) if (!ro.keep.has(om.obstacles[i])) destroyObj(om.obstacles[i]);
+om.obstacles.length = 0; for (i = 0; i < ro.out.length; i++) om.obstacles.push(ro.out[i]);
+for (i = mm.money.length - 1; i >= 0; i--) if (!rm.keep.has(mm.money[i])) destroyObj(mm.money[i]);
+mm.money.length = 0; for (i = 0; i < rm.out.length; i++) mm.money.push(rm.out[i]);
+var fix = function (list, keepSet) {
+for (var k = list.length - 1; k >= 0; k--) {
+var e = list[k];
+if (keepSet.has(e.o)) list.splice(k, 1);
+else if (e.t > s.t) { destroyObj(e.o); list.splice(k, 1); }
+}
+};
+fix(R.kept.o, ro.keep); fix(R.kept.m, rm.keep);
+ch.isNeedRecalculatePredictions = true; ch.isMaxVelocityCrossed = false; ch.timeBeforeNextGroundCollisionSec = 0.3;
+return true;
+} catch (e) { R.lastErr = String(e); return false; }
+};
+})();
+
 ( () => {
     var t, e, r = {
         7054: (t, e, r) => {
@@ -13160,7 +13439,7 @@
                                 case 0:
                                     return t.prev = 0,
                                     t.next = 3,
-                                    window.ytgame.game.loadData();
+                                    (window.__bmStore ? window.__bmStore.load() : window.ytgame.game.loadData());
                                 case 3:
                                     e = t.sent,
                                     this.data = e ? JSON.parse(e) : {},
@@ -13191,7 +13470,7 @@
                                 case 0:
                                     return t.prev = 0,
                                     t.next = 3,
-                                    window.ytgame.game.saveData(JSON.stringify(this.data));
+                                    (window.__bmStore ? window.__bmStore.save(JSON.stringify(this.data)) : window.ytgame.game.saveData(JSON.stringify(this.data)));
                                 case 3:
                                     t.next = 9;
                                     break;
@@ -25216,10 +25495,7 @@
                     value: function() {
                         for (var t = this.level.camera.rightBorderInWorldX + 500, e = this.obstacles.length - 1; e >= 0; e--) {
                             var r = this.obstacles[e];
-                            r.x - r.leftBorderOffset > t && (this.obstacles.splice(e, 1),
-                            r.destroy({
-                                children: !0
-                            }))
+                            r.x - r.leftBorderOffset > t && (this.obstacles.splice(e, 1), window.__bmr ? window.__bmr.keepO(this, r) : r.destroy({ children: !0 }))
                         }
                     }
                 }, {
@@ -29701,10 +29977,7 @@
                     value: function() {
                         for (var t = this.level.camera.rightBorderInWorldX + 500, e = this.money.length - 1; e >= 0; e--) {
                             var r = this.money[e];
-                            r.x > t && (this.money.splice(e, 1),
-                            r.destroy({
-                                children: !0
-                            }))
+                            r.x > t && (this.money.splice(e, 1), window.__bmr ? window.__bmr.keepM(this, r) : r.destroy({ children: !0 }))
                         }
                     }
                 }, {
