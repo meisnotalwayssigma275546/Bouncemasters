@@ -97,6 +97,8 @@ let lastLv = null, runs = 0, st = { bestY: 0, bestV: 0, t0: 0, x0: 0 }, cur = { 
 let prevVy = 0, bounces = 0, autoCool = 0, fno = 0, fpsN = 0, fpsT = performance.now(), fps = 0, tkOrig = 0;
 const coins0 = (() => { try { return Number(M().coins.value) || 0; } catch (e) { return 0; } })();
 const tk = B.pixiApp.ticker;
+const BMR = window.__bmr && window.__bmr.ready ? window.__bmr : null; // recorder injected into the patched game.js
+let snapN = 0;
 
 // ================= finding the game objects =================
 let LV = null, lastFind = 0;
@@ -181,7 +183,7 @@ if (this.__bmIn) return orig.apply(this, arguments); // nested super call
 if (this.__bmGot) return;
 this.__bmGot = true; this.__bmIn = true;
 try {
-if (S.keepWorld && S.respawn && !rw) logCollect(this);
+if (!BMR && S.keepWorld && S.respawn && !rw) logCollect(this);
 const r = orig.apply(this, arguments);
 try {
 if (this.type === "coin" && S.cm > 1) M().coins.value += S.cm - 1;
@@ -256,12 +258,13 @@ i = 0;
 while (i < frames.length && frames[i].t < cut) { frameBytes -= frames[i].b.size; i++; }
 if (i) frames.splice(0, i);
 };
+const bmrBytes = () => { let b = 0; for (let i = 0; i < snaps.length; i++) if (snaps[i].bmr) b += snaps[i].bmr.b; return b; };
 const trim = () => {
 const oldest = snaps.length ? snaps[0].t : Infinity;
 if (snaps.length) dropBefore(oldest);
 const cap = S.memMB * 1048576;
 let g = 0;
-while (frameBytes + snaps.length * 90 > cap && snaps.length > 30 && g++ < 200) dropBefore(snaps[Math.min(20, snaps.length - 1)].t);
+while (frameBytes + snaps.length * 90 + bmrBytes() > cap && snaps.length > 30 && g++ < 200) dropBefore(snaps[Math.min(20, snaps.length - 1)].t);
 const m = performance.memory;
 if (m && m.jsHeapSizeLimit && m.usedJSHeapSize / m.jsHeapSizeLimit > 0.72 && snaps.length > 60) dropBefore(snaps[Math.floor(snaps.length * 0.2)].t);
 const o2 = snaps.length ? snaps[0].t : -Infinity;
@@ -269,8 +272,9 @@ while (keptO.length > S.keepObs || (keptO.length && snaps.length && keptO[0].t <
 const capM = Math.round(S.keepObs * 1.5);
 while (keptM.length > capM || (keptM.length && snaps.length && keptM[0].t < o2)) destroyKept(keptM.shift());
 while (collected.length && snaps.length && collected[0].t < o2) collected.shift();
+if (BMR) { const sb = snaps.find((x) => x.bmr); BMR.gc(sb ? sb.bmr.t : 0); }
 };
-const clearBuf = () => { snaps = []; frames = []; frameBytes = 0; flushKept(); };
+const clearBuf = () => { snaps = []; frames = []; frameBytes = 0; flushKept(); if (BMR) BMR.flush(); };
 
 // ================= restoring the character =================
 const pin = (ch, s) => { ch.x = s.x; ch.y = s.y; ch.flyingVelocity.x = s.vx; ch.flyingVelocity.y = s.vy; ch.timeBeforeNextGroundCollisionSec = 0.3; };
@@ -295,7 +299,7 @@ if (locks.size) locks.forEach((L) => { try { const p = resolve(L.r); if (p) p[0]
 const l = findLevel();
 if (!l) return;
 const ch = l.flyingCharacter;
-if (l !== lastLv) { lastLv = l; runs++; st = { bestY: ch.y, bestV: 0, t0: performance.now(), x0: ch.x }; clearBuf(); patchLevel(l); }
+if (l !== lastLv) { lastLv = l; runs++; st = { bestY: ch.y, bestV: 0, t0: performance.now(), x0: ch.x }; clearBuf(); if (!BMR) patchLevel(l); }
 patchChar(ch);
 if (!ch.__g0) ch.__g0 = GK.map((k) => ch[k]);
 GK.forEach((k, i) => { ch[k] = ch.__g0[i] * S.grav / 100; });
@@ -347,7 +351,9 @@ if (!S.rec || l.state !== "flying") return;
 const now = clk();
 if ((ch.state === "flying" || ch.state === "spaceLaunch") && now - lastS >= 100) {
 lastS = now;
-snaps.push({ t: now, x: ch.x, y: ch.y, vx: v.x, vy: v.y, rot: ch.rotation, st: ch.state });
+const sn = { t: now, x: ch.x, y: ch.y, vx: v.x, vy: v.y, rot: ch.rotation, st: ch.state };
+if (BMR && S.keepWorld && (snapN++ & 1) === 0) sn.bmr = BMR.capture(); // full game-state snapshot every 200ms
+snaps.push(sn);
 if (snaps.length > MAXREC) snaps.shift();
 }
 });
@@ -528,11 +534,15 @@ r.raf = requestAnimationFrame(rwStep);
 const endRewind = () => {
 const r = rw; if (!r) return;
 cancelAnimationFrame(r.raf);
-const ch = findChar(), s = r.snap || snaps[0];
+const ch = findChar();
+let s = r.snap || snaps[0], sb = null, worldOk = false;
+if (BMR && S.keepWorld && s) { let i = snaps.indexOf(s); for (let k = 0; i >= 0 && k < 12; i--, k++) if (snaps[i].bmr) { sb = snaps[i]; break; } }
+if (sb) { s = sb; try { worldOk = BMR.restore(sb.bmr); } catch (e) { console.log("bmr restore", e); } }
 let nResp = 0;
-if (ch && s) restoreState(ch, s);
+if (!worldOk && ch && s) restoreState(ch, s);
+else if (worldOk && ch) { ch.isNeedRecalculatePredictions = true; ch.timeBeforeNextGroundCollisionSec = 0.3; }
 if (s) {
-if (S.keepWorld && S.respawn) nResp = respawnCollected(s.t);
+if (!BMR && S.keepWorld && S.respawn) nResp = respawnCollected(s.t);
 snaps = snaps.filter((x) => x.t <= s.t); frames = frames.filter((f) => f.t <= s.t);
 frameBytes = frames.reduce((a, f) => a + f.b.size, 0);
 skew = performance.now() - s.t; lastS = lastF = s.t;
@@ -541,7 +551,7 @@ const back = Math.round((r.from - r.t) / 100) / 10;
 rw = null;
 try { delete B.timeScalers.bmrew; } catch (e) {}
 fxHide(); sndStop();
-say("rewound " + back + "s" + (nResp ? ", " + nResp + " coins respawned" : ""));
+say("rewound " + back + "s" + (worldOk ? ", whole game state restored" : nResp ? ", " + nResp + " coins respawned" : ""));
 };
 
 // ================= helpers: abilities, collecting, slots, screenshot, clip =================
@@ -601,7 +611,7 @@ const setFlag = (n, v) => {
 S[n] = v;
 if (n === "hover" && v) { const c = findChar(); S.holdY = c ? Math.round(c.y) : 0; }
 if (n === "rec" && !v) clearBuf();
-if (n === "keepWorld" && !v) flushKept();
+if (n === "keepWorld" && !v) { flushKept(); if (BMR) BMR.flush(); }
 if (n === "hud" && hudEl) hudEl.style.display = v ? "" : "none";
 if (n === "fab" && fab) fab.style.display = v ? "" : "none";
 if (n === "lite") applyLook();
@@ -822,10 +832,10 @@ el("div", { className: "meter" }, [meterI]), meterT,
 btn("Clear buffer", () => { clearBuf(); say("buffer cleared"); })
 ]);
 const world = card("WORLD", [
-R(lbl("Keep the world", "obstacles and coins stay for rewind"), flag("keepWorld")),
-R(lbl("Coins respawn", "coins you grabbed come back"), flag("respawn")),
+R(lbl("Record the whole game", "character, level, obstacles, coins, animations"), flag("keepWorld")),
+R(lbl("Coins respawn (fallback only)", "the patched game restores them anyway"), flag("respawn")),
 R(lbl("Objects kept behind", "more = longer rewind, more load"), slid(20, 300, () => S.keepObs, (v) => { S.keepObs = v; }, "")),
-el("div", { className: "note", textContent: "The game normally deletes obstacles and coins once the camera passes them. With this on they are hidden and kept, and come back when you rewind. Your coin total is never rolled back." })
+el("div", { className: "note", textContent: "With the patched game.js, every 200ms the real game state is recorded: character, level, camera, spawners, obstacles, coins and their animations. Rewinding puts exactly that back (and removes whatever spawned afterwards), so nothing disappears. Your coin total and save are never rolled back." })
 ]);
 const rew = card("REWIND", [
 bigHold,
@@ -1074,13 +1084,14 @@ applyLook();
 let tickN = 0;
 setInterval(() => {
 tickN++;
+if (BMR) { BMR.enabled = !!S.keepWorld; BMR.keepObs = S.keepObs; }
 trim();
 const open = !body.classList.contains("hide");
 if (open) {
 swDraws.forEach((f) => { try { f(); } catch (e) {} });
-const have = snaps.length ? (clk() - snaps[0].t) / 1000 : 0, used = frameBytes + snaps.length * 90;
+const have = snaps.length ? (clk() - snaps[0].t) / 1000 : 0, used = frameBytes + snaps.length * 90 + bmrBytes();
 meterI.style.width = Math.min(100, used / (S.memMB * 1048576) * 100) + "%";
-meterT.textContent = have.toFixed(0) + "s buffered, " + (used / 1048576).toFixed(1) + " of " + S.memMB + " MB, " + keptO.length + " obstacles and " + keptM.length + " coins kept";
+meterT.textContent = have.toFixed(0) + "s buffered, " + (used / 1048576).toFixed(1) + " of " + S.memMB + " MB, " + (BMR ? BMR.kept.o.length + " obstacles and " + BMR.kept.m.length + " coins kept, game patch active" : "game patch NOT found, using the fallback");
 const now = performance.now(); fps = Math.round(fpsN * 1000 / (now - fpsT)); fpsN = 0; fpsT = now;
 sRuns.textContent = String(runs); sH.textContent = Math.round(st.bestY).toLocaleString(); sV.textContent = Math.round(st.bestV).toLocaleString(); sBo.textContent = String(bounces);
 try { sC.textContent = Math.round(Number(M().coins.value) - coins0).toLocaleString(); } catch (e) {}
